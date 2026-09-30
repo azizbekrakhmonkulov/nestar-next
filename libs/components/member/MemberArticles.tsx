@@ -6,7 +6,12 @@ import { useRouter } from 'next/router';
 import CommunityCard from '../common/CommunityCard';
 import { T } from '../../types/common';
 import { BoardArticle } from '../../types/board-article/board-article';
-import { BoardArticlesInquiry } from '../../types/board-article/board-article.input';
+import { BoardArticlesInquiry } from '../../types/board-article/board-article.input'; import { likeTargetBoardArticleHandler } from '../../utils';
+import { useMutation, useQuery } from '@apollo/client';
+import { LIKE_TARGET_BOARD_ARTICLE } from '../../../apollo/user/mutation';
+import { GET_BOARD_ARTICLES } from '../../../apollo/user/query';
+import { Messages } from '../../config';
+import { sweetMixinErrorAlert, sweetTopSmallSuccessAlert } from '../../sweetAlert';
 
 const MemberArticles: NextPage = ({ initialInput, ...props }: any) => {
 	const device = useDeviceDetect();
@@ -17,6 +22,23 @@ const MemberArticles: NextPage = ({ initialInput, ...props }: any) => {
 	const [memberBoArticles, setMemberBoArticles] = useState<BoardArticle[]>([]);
 
 	/** APOLLO REQUESTS **/
+	const [likeTargetBoardArticle] = useMutation(LIKE_TARGET_BOARD_ARTICLE);
+	const {
+		loading: boardArticlesLoading,
+		data: boardArticlesData,
+		error: boardArticlesError,
+		refetch: boardArticlesRefetch,
+	} = useQuery(GET_BOARD_ARTICLES, {
+		fetchPolicy: 'network-only',
+		variables: {
+			input: searchFilter,
+		},
+		notifyOnNetworkStatusChange: true,
+		onCompleted: (data: any) => {
+			setMemberBoArticles(data?.getBoardArticles?.list);
+			setTotal(data?.getBoardArticles?.metaCounter?.[0]?.total || 0);
+		},
+	});
 
 	/** LIFECYCLES **/
 	useEffect(() => {
@@ -26,6 +48,25 @@ const MemberArticles: NextPage = ({ initialInput, ...props }: any) => {
 	/** HANDLERS **/
 	const paginationHandler = (e: T, value: number) => {
 		setSearchFilter({ ...searchFilter, page: value });
+	};
+
+	const likeArticleHandler = async (e: any, user: any, id: string) => {
+		try {
+			e.stopPropagation();
+			if (!id) return;
+			if (!user._id) throw new Error(Messages.error2);
+
+			await likeTargetBoardArticle({
+				variables: {
+					input: id,
+				},
+			});
+			await boardArticlesRefetch({ input: searchFilter });
+			await sweetTopSmallSuccessAlert('success', 800);
+		} catch (err: any) {
+			console.log('Error, likeArticleHandler:', err.message);
+			await sweetMixinErrorAlert(err.message);
+		}
 	};
 
 	if (device === 'mobile') {
@@ -46,7 +87,14 @@ const MemberArticles: NextPage = ({ initialInput, ...props }: any) => {
 						</div>
 					)}
 					{memberBoArticles?.map((boardArticle: BoardArticle) => {
-						return <CommunityCard boardArticle={boardArticle} key={boardArticle?._id} size={'small'} />;
+						return (
+							<CommunityCard
+								boardArticle={boardArticle}
+								key={boardArticle?._id}
+								likeArticleHandler={likeArticleHandler}
+								size={'small'}
+							/>
+						);
 					})}
 				</Stack>
 				{memberBoArticles?.length !== 0 && (

@@ -3,7 +3,7 @@ import { Box, Button, Pagination, Stack, Typography } from '@mui/material';
 import useDeviceDetect from '../../hooks/useDeviceDetect';
 import { useRouter } from 'next/router';
 import { FollowInquiry } from '../../types/follow/follow.input';
-import { useReactiveVar } from '@apollo/client';
+import { useQuery, useReactiveVar } from '@apollo/client';
 import { Follower } from '../../types/follow/follow';
 import { REACT_APP_API_URL } from '../../config';
 import FavoriteIcon from '@mui/icons-material/Favorite';
@@ -11,15 +11,18 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import { userVar } from '../../../apollo/store';
 import { T } from '../../types/common';
 
+import { GET_MEMBER_FOLLOWERS } from '../../../apollo/user/query';
+
 interface MemberFollowsProps {
 	initialInput: FollowInquiry;
 	subscribeHandler: any;
 	unsubscribeHandler: any;
+	likeMemberHandler: any;
 	redirectToMemberPageHandler: any;
 }
 
 const MemberFollowers = (props: MemberFollowsProps) => {
-	const { initialInput, subscribeHandler, unsubscribeHandler, redirectToMemberPageHandler } = props;
+	const { initialInput, subscribeHandler, unsubscribeHandler, likeMemberHandler, redirectToMemberPageHandler } = props;
 	const device = useDeviceDetect();
 	const router = useRouter();
 	const [total, setTotal] = useState<number>(0);
@@ -29,15 +32,31 @@ const MemberFollowers = (props: MemberFollowsProps) => {
 	const user = useReactiveVar(userVar);
 
 	/** APOLLO REQUESTS **/
+	const {
+		loading: getMemberFollowersLoading,
+		data: getMemberFollowersData,
+		error: getMemberFollowersError,
+		refetch: getMemberFollowersRefetch,
+	} = useQuery(GET_MEMBER_FOLLOWERS, {
+		fetchPolicy: 'network-only',
+		variables: { input: followInquiry },
+		skip: !followInquiry?.search?.followingId,
+		notifyOnNetworkStatusChange: true,
+		onCompleted: (data: T) => {
+			setMemberFollowers(data?.getMemberFollowers?.list ?? []);
+			setTotal(data?.getMemberFollowers?.metaCounter?.[0]?.total ?? 0);
+		},
+	});
 
 	/** LIFECYCLES **/
 	useEffect(() => {
-		if (router.query.memberId)
-			setFollowInquiry({ ...followInquiry, search: { followingId: router.query.memberId as string } });
-		else setFollowInquiry({ ...followInquiry, search: { followingId: user?._id } });
-	}, [router]);
+		if (!router.isReady) return;
+		const followingId = (router.query.memberId as string) ?? user?._id;
+		if (!followingId) return;
+		if (followInquiry?.search?.followingId === followingId) return;
 
-	useEffect(() => {}, [followInquiry]);
+		setFollowInquiry({ ...followInquiry, page: 1, search: { followingId } });
+	}, [router.isReady, router.query.memberId, user?._id]);
 
 	/** HANDLERS **/
 	const paginationHandler = async (event: ChangeEvent<unknown>, value: number) => {
@@ -92,9 +111,18 @@ const MemberFollowers = (props: MemberFollowsProps) => {
 									</Box>
 									<Box className={'info-box'} component={'div'}>
 										{follower?.meLiked && follower?.meLiked[0]?.myFavorite ? (
-											<FavoriteIcon color="primary" />
+											<FavoriteIcon
+												color="primary"
+												onClick={() => {
+													likeMemberHandler(follower.followerData?._id, getMemberFollowersRefetch, followInquiry);
+												}}
+											/>
 										) : (
-											<FavoriteBorderIcon />
+											<FavoriteBorderIcon
+												onClick={() => {
+													likeMemberHandler(follower.followerData?._id, getMemberFollowersRefetch, followInquiry);
+												}}
+											/>
 										)}
 										<span>({follower?.followerData?.memberLikes})</span>
 									</Box>
@@ -107,7 +135,9 @@ const MemberFollowers = (props: MemberFollowsProps) => {
 												<Button
 													variant="outlined"
 													sx={{ background: '#ed5858', ':hover': { background: '#ee7171' } }}
-													onClick={() => unsubscribeHandler(follower?.followerData?._id, null, followInquiry)}
+													onClick={() =>
+														unsubscribeHandler(follower?.followerData?._id, getMemberFollowersRefetch, followInquiry)
+													}
 												>
 													Unfollow
 												</Button>
@@ -116,7 +146,9 @@ const MemberFollowers = (props: MemberFollowsProps) => {
 											<Button
 												variant="contained"
 												sx={{ background: '#60eb60d4', ':hover': { background: '#60eb60d4' } }}
-												onClick={() => subscribeHandler(follower?.followerData?._id, null, followInquiry)}
+												onClick={() =>
+													subscribeHandler(follower?.followerData?._id, getMemberFollowersRefetch, followInquiry)
+												}
 											>
 												Follow
 											</Button>
@@ -127,12 +159,12 @@ const MemberFollowers = (props: MemberFollowsProps) => {
 						);
 					})}
 				</Stack>
-				{memberFollowers.length !== 0 && (
+				{memberFollowers?.length !== 0 && (
 					<Stack className="pagination-config">
 						<Stack className="pagination-box">
 							<Pagination
 								page={followInquiry.page}
-								count={Math.ceil(total / followInquiry.limit)}
+								count={Math.ceil(total / followInquiry.limit) || 1}
 								onChange={paginationHandler}
 								shape="circular"
 								color="primary"
