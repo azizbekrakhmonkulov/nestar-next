@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ApolloClient, ApolloLink, InMemoryCache, split, from, NormalizedCacheObject } from '@apollo/client';
+import { ApolloClient, ApolloLink, InMemoryCache, split, from, NormalizedCacheObject, TypePolicies } from '@apollo/client';
 import createUploadLink from 'apollo-upload-client/public/createUploadLink.js';
 import { WebSocketLink } from '@apollo/client/link/ws';
 import { getMainDefinition } from '@apollo/client/utilities';
@@ -81,12 +81,30 @@ function createIsomorphicLink() {
 		return from([errorLink, tokenRefreshLink, splitLink]);
 	}
 }
+/**
+ * `meLiked` & `meFollowed` come from server-side aggregation and carry no `_id`, so
+ * InMemoryCache cannot normalize them. Without a merge function Apollo warns about
+ * possible data loss every time such an array shrinks (right after unliking, for
+ * example), and formatting that dev-only warning throws
+ * "TypeError: Cannot convert object to primitive value".
+ * These arrays are always a complete snapshot for the current user, so overwriting the
+ * cached value is the correct merge strategy.
+ */
+const AGGREGATED_TYPES = ['Member', 'Property', 'BoardArticle', 'Comment', 'Follower', 'Following'];
+const AGGREGATED_FIELDS = ['meLiked', 'meFollowed'];
+
+const typePolicies: TypePolicies = Object.fromEntries(
+	AGGREGATED_TYPES.map((typename) => [
+		typename,
+		{ fields: Object.fromEntries(AGGREGATED_FIELDS.map((fieldName) => [fieldName, { merge: false }])) },
+	]),
+);
 
 function createApolloClient() {
 	return new ApolloClient({
 		ssrMode: typeof window === 'undefined',
 		link: createIsomorphicLink(),
-		cache: new InMemoryCache(),
+		cache: new InMemoryCache({ typePolicies }),
 		resolvers: {},
 	});
 }
